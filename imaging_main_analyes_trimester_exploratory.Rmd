@@ -1,0 +1,6625 @@
+---
+title: "PheWAS Analyses t1-t3"
+author: "Aaron Gorelik"
+output:
+  pdf_document: default
+  pdf: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+dont use the non_total variables here use them from imaging_cuddel
+
+## Libraries, functions
+```{r}
+library(data.table)
+library(lmerTest)
+library(lme4)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(ggrepel)
+library(forcats)
+library(ggsci)
+library(RColorBrewer)
+library(optimx)
+library(minqa)
+library(dfoptim)
+library(survey)
+library(Polychrome)
+library(scales)
+library(ggnewscale)
+library(ggpubr)
+library(gplots)
+library(psych)
+#Functions that help
+#Nabs warnings from a loop
+withWarnings <- function(expr) {
+  myWarnings <- NULL
+  wHandler <- function(w) {
+    myWarnings <<- c(myWarnings, list(w))
+    invokeRestart("muffleWarning")
+  }
+  val <- withCallingHandlers(expr, warning = wHandler)
+  list(value = val, warnings = myWarnings)
+} 
+set.seed(68)
+
+PheWAS_baseline <- read.csv("~/Downloads/PheWAS_baseline_with_ALL_totals_v11.csv")
+
+
+
+
+# MERGE DA DATA
+#phewas <- read.csv("~/Downloads/PheWAS_CUDDEL.csv")
+#xxx <- read.csv("~/Downloads/XXX_Y.csv")
+
+#PheWAS_CUDDEL_semi <- merge(
+  #phewas,
+#  xxx,
+ # by = "record_id",
+ # all.x = TRUE   
+#)
+
+
+#write.csv(PheWAS_CUDDEL_semi, "PheWAS_CUDDEL_semi.csv", row.names = FALSE)
+
+
+```
+
+## Reading in Baseline Data
+```{r}
+ #for hypothesis pull and redo FDR correctiion
+PheWAS_baseline[PheWAS_baseline == "NA"] <- NA
+PheWAS_baseline[PheWAS_baseline == ""] <- NA
+
+PheWAS_baseline$child_sex <- as.factor(PheWAS_baseline$child_sex)
+
+PheWAS_baseline$family_id <- as.factor(PheWAS_baseline$family_id)
+
+PheWAS_baseline$study_type <- factor(
+  PheWAS_baseline$study_type,
+  levels = c("Cuddel", "eLABE")
+)
+
+PheWAS_baseline$mom_cannabis_use <-
+  factor(PheWAS_baseline$mom_cannabis_use)
+
+
+
+
+PheWAS_baseline <- PheWAS_baseline %>%
+  mutate(across(where(is.numeric), ~ as.numeric(scale(.))))
+
+
+
+subcortical_vars <- c(
+  "left_thalamus_volume", "right_thalamus_volume", "left_caudate_volume", "right_caudate_volume",
+  "left_lentiform_volume", "right_lentiform_volume", 
+   "left_hippocampus_volume", "right_hippocampus_volume",
+  "left_amygdala_volume", "right_amygdala_volume", "left_cerebellum_cortex_volume",
+  "right_cerebellum_cortex_volume", "left_lateral_ventricle_volume", "right_lateral_ventricle_volume",
+  "brain_stem_volume"
+)
+
+subcortical_totals <- c(
+  "thalamus_volume_TOTAL",
+  "caudate_volume_TOTAL",
+  "lentiform_volume_TOTAL",
+  "hippocampus_volume_TOTAL",
+  "amygdala_volume_TOTAL",
+  "cerebellum_cortex_volume_TOTAL",
+  "lateral_ventricle_volume_TOTAL"
+)
+
+cortical_vars <- c(
+  "ctx_lh_bankssts_volume","ctx_rh_bankssts_volume",
+  "ctx_lh_caudalanteriorcingulate_volume","ctx_rh_caudalanteriorcingulate_volume",
+  "ctx_lh_caudalmiddlefrontal_volume","ctx_rh_caudalmiddlefrontal_volume",
+  "ctx_lh_cuneus_volume","ctx_rh_cuneus_volume",
+  "ctx_lh_entorhinal_volume","ctx_rh_entorhinal_volume",
+  "ctx_lh_frontalpole_volume","ctx_rh_frontalpole_volume",
+  "ctx_lh_fusiform_volume","ctx_rh_fusiform_volume",
+  "ctx_lh_inferiorparietal_volume","ctx_rh_inferiorparietal_volume",
+  "ctx_lh_inferiortemporal_volume","ctx_rh_inferiortemporal_volume",
+  "ctx_lh_isthmuscingulate_volume","ctx_rh_isthmuscingulate_volume",
+  "ctx_lh_insula_volume","ctx_rh_insula_volume",
+  "ctx_lh_lingual_volume","ctx_rh_lingual_volume",
+  "ctx_lh_lateralorbitofrontal_volume","ctx_rh_lateralorbitofrontal_volume",
+  "ctx_lh_lateraloccipital_volume","ctx_rh_lateraloccipital_volume",
+  "ctx_lh_middletemporal_volume","ctx_rh_middletemporal_volume",
+  "ctx_lh_medialorbitofrontal_volume","ctx_rh_medialorbitofrontal_volume",
+  "ctx_lh_paracentral_volume","ctx_rh_paracentral_volume",
+  "ctx_lh_parahippocampal_volume","ctx_rh_parahippocampal_volume",
+  "ctx_lh_parsorbitalis_volume","ctx_rh_parsorbitalis_volume",
+  "ctx_lh_parsopercularis_volume","ctx_rh_parsopercularis_volume",
+  "ctx_lh_parstriangularis_volume","ctx_rh_parstriangularis_volume",
+  "ctx_lh_precuneus_volume","ctx_rh_precuneus_volume",
+  "ctx_lh_pericalcarine_volume","ctx_rh_pericalcarine_volume",
+  "ctx_lh_postcentral_volume","ctx_rh_postcentral_volume",
+  "ctx_lh_precentral_volume","ctx_rh_precentral_volume",
+  "ctx_lh_posteriorcingulate_volume","ctx_rh_posteriorcingulate_volume",
+  "ctx_lh_rostralanteriorcingulate_volume","ctx_rh_rostralanteriorcingulate_volume",
+  "ctx_lh_rostralmiddlefrontal_volume","ctx_rh_rostralmiddlefrontal_volume",
+  "ctx_lh_supramarginal_volume","ctx_rh_supramarginal_volume",
+  "ctx_lh_superiorfrontal_volume","ctx_rh_superiorfrontal_volume",
+  "ctx_lh_superiorparietal_volume","ctx_rh_superiorparietal_volume",
+  "ctx_lh_superiortemporal_volume","ctx_rh_superiortemporal_volume",
+  "ctx_lh_temporalpole_volume","ctx_rh_temporalpole_volume",
+  "ctx_lh_transversetemporal_volume","ctx_rh_transversetemporal_volume", "ctx_lh_posteriorcingulate_volume", "ctx_rh_posteriorcingulate_volume"
+)
+
+cortical_totals <- c(
+  "ctx_lateralorbitofrontal_volume_TOTAL",
+  "ctx_rostralmiddlefrontal_volume_TOTAL",
+  "ctx_superiorfrontal_volume_TOTAL",
+  "ctx_lh_parsopercularis_volume", "ctx_rh_parsopercularis_volume", 
+  "ctx_lh_caudalmiddlefrontal_volume", "ctx_rh_caudalmiddlefrontal_volume", "ctx_lh_parstriangularis_volume", "ctx_rh_parstriangularis_volume",  "ctx_lh_parsorbitalis_volume", "ctx_rh_parsorbitalis_volume", "ctx_lh_medialorbitofrontal_volume", "ctx_rh_medialorbitofrontal_volume", "ctx_lh_caudalanteriorcingulate_volume", "ctx_rh_caudalanteriorcingulate_volume", "ctx_lh_rostralanteriorcingulate_volume", "ctx_rh_rostralanteriorcingulate_volume"
+)
+
+
+
+gi_vars <- c(
+  "ctx_lh_caudalanteriorcingulate_gi","ctx_lh_caudalmiddlefrontal_gi",
+  "ctx_lh_lateralorbitofrontal_gi","ctx_lh_medialorbitofrontal_gi",
+  "ctx_lh_parsopercularis_gi","ctx_lh_parsorbitalis_gi","ctx_lh_parstriangularis_gi",
+ "ctx_lh_rostralanteriorcingulate_gi",
+  "ctx_lh_rostralmiddlefrontal_gi","ctx_lh_superiorfrontal_gi", "ctx_rh_caudalanteriorcingulate_gi","ctx_rh_caudalmiddlefrontal_gi",
+  "ctx_rh_lateralorbitofrontal_gi","ctx_rh_medialorbitofrontal_gi",
+  "ctx_rh_parsopercularis_gi","ctx_rh_parsorbitalis_gi","ctx_rh_parstriangularis_gi",
+ "ctx_rh_rostralanteriorcingulate_gi",
+  "ctx_rh_rostralmiddlefrontal_gi","ctx_rh_superiorfrontal_gi"
+  
+)
+
+gi_totals <- c(
+  "ctx_superiorfrontal_gi_TOTAL", "ctx_lh_caudalanteriorcingulate_gi","ctx_lh_caudalmiddlefrontal_gi",
+  "ctx_lh_lateralorbitofrontal_gi","ctx_lh_medialorbitofrontal_gi",
+  "ctx_lh_parsopercularis_gi","ctx_lh_parsorbitalis_gi","ctx_lh_parstriangularis_gi",
+ "ctx_lh_rostralanteriorcingulate_gi",
+  "ctx_lh_rostralmiddlefrontal_gi", "ctx_rh_caudalanteriorcingulate_gi","ctx_rh_caudalmiddlefrontal_gi",
+  "ctx_rh_lateralorbitofrontal_gi","ctx_rh_medialorbitofrontal_gi",
+  "ctx_rh_parsopercularis_gi","ctx_rh_parsorbitalis_gi","ctx_rh_parstriangularis_gi",
+ "ctx_rh_rostralanteriorcingulate_gi",
+  "ctx_rh_rostralmiddlefrontal_gi"
+)
+
+
+thickness_vars <- c(
+  "ctx_lh_bankssts_mean_cortical_thickness","ctx_lh_caudalanteriorcingulate_mean_cortical_thickness",
+  "ctx_lh_caudalmiddlefrontal_mean_cortical_thickness","ctx_lh_cuneus_mean_cortical_thickness",
+  "ctx_lh_entorhinal_mean_cortical_thickness","ctx_lh_fusiform_mean_cortical_thickness",
+  "ctx_lh_inferiorparietal_mean_cortical_thickness","ctx_lh_inferiortemporal_mean_cortical_thickness",
+  "ctx_lh_isthmuscingulate_mean_cortical_thickness","ctx_lh_lateraloccipital_mean_cortical_thickness",
+  "ctx_lh_lateralorbitofrontal_mean_cortical_thickness","ctx_lh_lingual_mean_cortical_thickness",
+  "ctx_lh_medialorbitofrontal_mean_cortical_thickness","ctx_lh_middletemporal_mean_cortical_thickness",
+  "ctx_lh_parahippocampal_mean_cortical_thickness","ctx_lh_paracentral_mean_cortical_thickness",
+  "ctx_lh_parsopercularis_mean_cortical_thickness","ctx_lh_parsorbitalis_mean_cortical_thickness",
+  "ctx_lh_parstriangularis_mean_cortical_thickness","ctx_lh_pericalcarine_mean_cortical_thickness",
+  "ctx_lh_postcentral_mean_cortical_thickness","ctx_lh_posteriorcingulate_mean_cortical_thickness",
+  "ctx_lh_precentral_mean_cortical_thickness","ctx_lh_precuneus_mean_cortical_thickness",
+  "ctx_lh_rostralanteriorcingulate_mean_cortical_thickness","ctx_lh_rostralmiddlefrontal_mean_cortical_thickness",
+  "ctx_lh_superiorfrontal_mean_cortical_thickness","ctx_lh_superiorparietal_mean_cortical_thickness",
+  "ctx_lh_superiortemporal_mean_cortical_thickness","ctx_lh_supramarginal_mean_cortical_thickness",
+  "ctx_lh_frontalpole_mean_cortical_thickness","ctx_lh_temporalpole_mean_cortical_thickness",
+  "ctx_lh_transversetemporal_mean_cortical_thickness","ctx_lh_insula_mean_cortical_thickness",
+  "ctx_rh_bankssts_mean_cortical_thickness","ctx_rh_caudalanteriorcingulate_mean_cortical_thickness",
+  "ctx_rh_caudalmiddlefrontal_mean_cortical_thickness","ctx_rh_cuneus_mean_cortical_thickness",
+  "ctx_rh_entorhinal_mean_cortical_thickness","ctx_rh_fusiform_mean_cortical_thickness",
+  "ctx_rh_inferiorparietal_mean_cortical_thickness","ctx_rh_inferiortemporal_mean_cortical_thickness",
+  "ctx_rh_isthmuscingulate_mean_cortical_thickness","ctx_rh_lateraloccipital_mean_cortical_thickness",
+  "ctx_rh_lateralorbitofrontal_mean_cortical_thickness","ctx_rh_lingual_mean_cortical_thickness",
+  "ctx_rh_medialorbitofrontal_mean_cortical_thickness","ctx_rh_middletemporal_mean_cortical_thickness",
+  "ctx_rh_parahippocampal_mean_cortical_thickness","ctx_rh_paracentral_mean_cortical_thickness",
+  "ctx_rh_parsopercularis_mean_cortical_thickness","ctx_rh_parsorbitalis_mean_cortical_thickness",
+  "ctx_rh_parstriangularis_mean_cortical_thickness","ctx_rh_pericalcarine_mean_cortical_thickness",
+  "ctx_rh_postcentral_mean_cortical_thickness","ctx_rh_posteriorcingulate_mean_cortical_thickness",
+  "ctx_rh_precentral_mean_cortical_thickness","ctx_rh_precuneus_mean_cortical_thickness",
+  "ctx_rh_rostralanteriorcingulate_mean_cortical_thickness","ctx_rh_rostralmiddlefrontal_mean_cortical_thickness",
+  "ctx_rh_superiorfrontal_mean_cortical_thickness","ctx_rh_superiorparietal_mean_cortical_thickness",
+  "ctx_rh_superiortemporal_mean_cortical_thickness","ctx_rh_supramarginal_mean_cortical_thickness",
+  "ctx_rh_frontalpole_mean_cortical_thickness","ctx_rh_temporalpole_mean_cortical_thickness",
+  "ctx_rh_transversetemporal_mean_cortical_thickness","ctx_rh_insula_mean_cortical_thickness"
+)
+
+
+thickness_totals <- c(
+  "ctx_lateralorbitofrontal_mean_cortical_thickness_TOTAL",
+  "ctx_rostralmiddlefrontal_mean_cortical_thickness_TOTAL",
+  "ctx_superiorfrontal_mean_cortical_thickness_TOTAL", "ctx_lh_caudalanteriorcingulate_mean_cortical_thickness",
+  "ctx_lh_caudalmiddlefrontal_mean_cortical_thickness",
+  "ctx_lh_medialorbitofrontal_mean_cortical_thickness",
+  "ctx_lh_parsopercularis_mean_cortical_thickness","ctx_lh_parsorbitalis_mean_cortical_thickness",
+  "ctx_lh_parstriangularis_mean_cortical_thickness",
+  "ctx_lh_rostralanteriorcingulate_mean_cortical_thickness",
+ "ctx_rh_caudalanteriorcingulate_mean_cortical_thickness",
+  "ctx_rh_caudalmiddlefrontal_mean_cortical_thickness",
+  "ctx_rh_medialorbitofrontal_mean_cortical_thickness",
+  "ctx_rh_parsopercularis_mean_cortical_thickness","ctx_rh_parsorbitalis_mean_cortical_thickness",
+  "ctx_rh_parstriangularis_mean_cortical_thickness",
+  "ctx_rh_rostralanteriorcingulate_mean_cortical_thickness"
+)
+
+
+surface_area_vars <- c(
+  "ctx_lh_bankssts_surface_area","ctx_lh_caudalanteriorcingulate_surface_area",
+  "ctx_lh_caudalmiddlefrontal_surface_area","ctx_lh_cuneus_surface_area",
+  "ctx_lh_entorhinal_surface_area","ctx_lh_fusiform_surface_area",
+  "ctx_lh_inferiorparietal_surface_area","ctx_lh_inferiortemporal_surface_area",
+  "ctx_lh_isthmuscingulate_surface_area","ctx_lh_lateraloccipital_surface_area",
+  "ctx_lh_lateralorbitofrontal_surface_area","ctx_lh_lingual_surface_area",
+  "ctx_lh_medialorbitofrontal_surface_area","ctx_lh_middletemporal_surface_area",
+  "ctx_lh_parahippocampal_surface_area","ctx_lh_paracentral_surface_area",
+  "ctx_lh_parsopercularis_surface_area","ctx_lh_parsorbitalis_surface_area",
+  "ctx_lh_parstriangularis_surface_area","ctx_lh_pericalcarine_surface_area",
+  "ctx_lh_postcentral_surface_area","ctx_lh_posteriorcingulate_surface_area",
+  "ctx_lh_precentral_surface_area","ctx_lh_precuneus_surface_area",
+  "ctx_lh_rostralanteriorcingulate_surface_area","ctx_lh_rostralmiddlefrontal_surface_area",
+  "ctx_lh_superiorfrontal_surface_area","ctx_lh_superiorparietal_surface_area",
+  "ctx_lh_superiortemporal_surface_area","ctx_lh_supramarginal_surface_area",
+  "ctx_lh_frontalpole_surface_area","ctx_lh_temporalpole_surface_area",
+  "ctx_lh_transversetemporal_surface_area","ctx_lh_insula_surface_area",
+  "ctx_rh_bankssts_surface_area","ctx_rh_caudalanteriorcingulate_surface_area",
+  "ctx_rh_caudalmiddlefrontal_surface_area","ctx_rh_cuneus_surface_area",
+  "ctx_rh_entorhinal_surface_area","ctx_rh_fusiform_surface_area",
+  "ctx_rh_inferiorparietal_surface_area","ctx_rh_inferiortemporal_surface_area",
+  "ctx_rh_isthmuscingulate_surface_area","ctx_rh_lateraloccipital_surface_area",
+  "ctx_rh_lateralorbitofrontal_surface_area","ctx_rh_lingual_surface_area",
+  "ctx_rh_medialorbitofrontal_surface_area","ctx_rh_middletemporal_surface_area",
+  "ctx_rh_parahippocampal_surface_area","ctx_rh_paracentral_surface_area",
+  "ctx_rh_parsopercularis_surface_area","ctx_rh_parsorbitalis_surface_area",
+  "ctx_rh_parstriangularis_surface_area","ctx_rh_pericalcarine_surface_area",
+  "ctx_rh_postcentral_surface_area","ctx_rh_posteriorcingulate_surface_area",
+  "ctx_rh_precentral_surface_area","ctx_rh_precuneus_surface_area",
+  "ctx_rh_rostralanteriorcingulate_surface_area","ctx_rh_rostralmiddlefrontal_surface_area",
+  "ctx_rh_superiorfrontal_surface_area","ctx_rh_superiorparietal_surface_area",
+  "ctx_rh_superiortemporal_surface_area","ctx_rh_supramarginal_surface_area",
+  "ctx_rh_frontalpole_surface_area","ctx_rh_temporalpole_surface_area",
+  "ctx_rh_transversetemporal_surface_area","ctx_rh_insula_surface_area"
+  
+)
+
+
+surface_area_totals <- c(
+  "ctx_caudalmiddlefrontal_surface_area_TOTAL",
+  "ctx_lateralorbitofrontal_surface_area_TOTAL",
+  "ctx_medialorbitofrontal_surface_area_TOTAL",
+  "ctx_parsopercularis_surface_area_TOTAL",
+  "ctx_rostralmiddlefrontal_surface_area_TOTAL",
+  "ctx_superiorfrontal_surface_area_TOTAL",
+ "ctx_lh_parsorbitalis_surface_area", "ctx_rh_parsorbitalis_surface_area", "ctx_lh_parstriangularis_surface_area", "ctx_rh_parstriangularis_surface_area",
+"ctx_lh_caudalanteriorcingulate_surface_area", "ctx_rh_caudalanteriorcingulate_surface_area", "ctx_lh_rostralanteriorcingulate_surface_area", "ctx_rh_rostralanteriorcingulate_surface_area"
+
+)
+
+
+
+# Mean Diffusivity (MD)
+md_vars <- c(
+  "cc_md_fsl",
+  "rt_cb_md_fsl",  "lt_cb_md_fsl",
+  "rt_cst_md_fsl", "lt_cst_md_fsl",
+  "rt_or_md_fsl",  "lt_or_md_fsl",
+  "rt_unc_md_fsl", "lt_unc_md_fsl",
+  "rt_alic_md_fsl","lt_alic_md_fsl",
+  "rt_fx_md_fsl",  "lt_fx_md_fsl",
+  "rt_cbif_md_fsl","lt_cbif_md_fsl",
+  "rt_ifof_md_fsl","lt_ifof_md_fsl",
+  "rt_slf_md_fsl", "lt_slf_md_fsl"
+)
+
+md_totals <- c(
+  "cb_md_fsl_TOTAL",
+  "unc_md_fsl_TOTAL",
+  "fx_md_fsl_TOTAL",
+ "lt_cbif_md_fsl", "rt_cbif_md_fsl"
+)
+
+
+# Fractional Anisotropy 
+fa_vars <- c(
+  "cc_fa_fsl",
+  "rt_cb_fa_fsl",  "lt_cb_fa_fsl",
+  "rt_cst_fa_fsl", "lt_cst_fa_fsl",
+  "rt_or_fa_fsl",  "lt_or_fa_fsl",
+  "rt_unc_fa_fsl", "lt_unc_fa_fsl",
+  "rt_alic_fa_fsl","lt_alic_fa_fsl",
+  "rt_fx_fa_fsl",  "lt_fx_fa_fsl",
+  "rt_cbif_fa_fsl","lt_cbif_fa_fsl",
+  "rt_ifof_fa_fsl","lt_ifof_fa_fsl",
+  "rt_slf_fa_fsl", "lt_slf_fa_fsl"
+)
+
+fa_totals <- c(
+  "cb_fa_fsl_TOTAL",
+  "unc_fa_fsl_TOTAL",
+ "lt_fx_fa_fsl", "rt_fx_fa_fsl", "lt_cbif_fa_fsl",
+  "rt_cbif_fa_fsl"
+)
+
+
+# Relative Anisotropy (RA)
+ra_vars <- c(
+  "cc_ra_fsl",
+  "rt_cb_ra_fsl",  "lt_cb_ra_fsl",
+  "rt_cst_ra_fsl", "lt_cst_ra_fsl",
+  "rt_or_ra_fsl",  "lt_or_ra_fsl",
+  "rt_unc_ra_fsl", "lt_unc_ra_fsl",
+  "rt_alic_ra_fsl","lt_alic_ra_fsl",
+  "rt_fx_ra_fsl",  "lt_fx_ra_fsl",
+  "rt_cbif_ra_fsl","lt_cbif_ra_fsl",
+  "rt_ifof_ra_fsl","lt_ifof_ra_fsl",
+  "rt_slf_ra_fsl", "lt_slf_ra_fsl"
+)
+
+ra_totals <- c(
+  "cb_ra_fsl_TOTAL",
+  "unc_ra_fsl_TOTAL",
+ "lt_fx_ra_fsl", "rt_fx_ra_fsl", 
+  "lt_cbif_ra_fsl", "rt_cbif_ra_fsl"
+)
+
+
+# Axial Diffusivity
+l1_vars <- c(
+  "cc_l1_fsl",
+  "rt_cb_l1_fsl",  "lt_cb_l1_fsl",
+  "rt_cst_l1_fsl", "lt_cst_l1_fsl",
+  "rt_or_l1_fsl",  "lt_or_l1_fsl",
+  "rt_unc_l1_fsl", "lt_unc_l1_fsl",
+  "rt_alic_l1_fsl","lt_alic_l1_fsl",
+  "rt_fx_l1_fsl",  "lt_fx_l1_fsl",
+  "rt_cbif_l1_fsl","lt_cbif_l1_fsl",
+  "rt_ifof_l1_fsl","lt_ifof_l1_fsl",
+  "rt_slf_l1_fsl", "lt_slf_l1_fsl"
+)
+
+
+l1_totals <- c(
+  "cb_l1_fsl_TOTAL",
+  "fx_l1_fsl_TOTAL",
+   "lt_unc_l1_fsl", "rt_unc_l1_fsl", "lt_cbif_l1_fsl", "rt_cbif_l1_fsl"
+)
+
+
+# Radial Diffusivity 
+rd_vars <- c(
+  "cc_rd_fsl",
+  "rt_cb_rd_fsl",  "lt_cb_rd_fsl",
+  "rt_cst_rd_fsl", "lt_cst_rd_fsl",
+  "rt_or_rd_fsl",  "lt_or_rd_fsl",
+  "rt_unc_rd_fsl", "lt_unc_rd_fsl",
+  "rt_alic_rd_fsl","lt_alic_rd_fsl",
+  "rt_fx_rd_fsl",  "lt_fx_rd_fsl",
+  "rt_cbif_rd_fsl","lt_cbif_rd_fsl",
+  "rt_ifof_rd_fsl","lt_ifof_rd_fsl",
+  "rt_slf_rd_fsl", "lt_slf_rd_fsl"
+)
+
+rd_totals <- c(
+  "cb_rd_fsl_TOTAL",
+  "unc_rd_fsl_TOTAL",
+  "fx_rd_fsl_TOTAL",
+ "lt_cbif_rd_fsl","rt_cbif_rd_fsl"
+)
+
+
+# Voxel count (region size)
+voxel_vars <- c(
+  "rt_cb_voxels_fsl",  "lt_cb_voxels_fsl",
+  "rt_unc_voxels_fsl", "lt_unc_voxels_fsl",
+  "rt_fx_voxels_fsl",  "lt_fx_voxels_fsl",
+  "rt_cbif_voxels_fsl","lt_cbif_voxels_fsl"
+)
+
+# Tract Volume
+volume_vars <- c(
+  "rt_cb_volume_fsl",  "lt_cb_volume_fsl",
+  "rt_unc_volume_fsl", "lt_unc_volume_fsl",
+  "rt_fx_volume_fsl",  "lt_fx_volume_fsl",
+  "rt_cbif_volume_fsl","lt_cbif_volume_fsl"
+
+)
+
+global_vars <- c(
+  "total_brain_volume_volume", "intracranial_volume_volume",
+  "total_cortical_gray_matter_volume", "total_cerebral_white_matter_volume",
+  "supratentorial_not_ventricle_volume", 
+  "subcortical_gray_matter_volume", "cc_volume"
+)
+
+
+rsfc_bcp <- c(
+  "Motor_vs_Motor_bcp",
+  "Temporal_vs_Motor_bcp", "Temporal_vs_Temporal_bcp",
+  "pFPN_vs_Motor_bcp", "pFPN_vs_Temporal_bcp", "pFPN_vs_pFPN_bcp",
+  "PCC_vs_Motor_bcp", "PCC_vs_Temporal_bcp", "PCC_vs_pFPN_bcp", "PCC_vs_PCC_bcp",
+  "LateralVis_vs_Motor_bcp", "LateralVis_vs_Temporal_bcp", "LateralVis_vs_pFPN_bcp",
+  "LateralVis_vs_PCC_bcp", "LateralVis_vs_LateralVis_bcp",
+  "MedialVis_vs_Motor_bcp", "MedialVis_vs_Temporal_bcp", "MedialVis_vs_pFPN_bcp",
+  "MedialVis_vs_PCC_bcp", "MedialVis_vs_LateralVis_bcp", "MedialVis_vs_MedialVis_bcp",
+  "DAN_vs_Motor_bcp", "DAN_vs_Temporal_bcp", "DAN_vs_pFPN_bcp", "DAN_vs_PCC_bcp",
+  "DAN_vs_LateralVis_bcp", "DAN_vs_MedialVis_bcp", "DAN_vs_DAN_bcp",
+  "aFPN_vs_Motor_bcp", "aFPN_vs_Temporal_bcp", "aFPN_vs_pFPN_bcp", "aFPN_vs_PCC_bcp",
+  "aFPN_vs_LateralVis_bcp", "aFPN_vs_MedialVis_bcp", "aFPN_vs_DAN_bcp", "aFPN_vs_aFPN_bcp",
+  "CO_vs_Motor_bcp", "CO_vs_Temporal_bcp", "CO_vs_pFPN_bcp", "CO_vs_PCC_bcp",
+  "CO_vs_LateralVis_bcp", "CO_vs_MedialVis_bcp", "CO_vs_DAN_bcp", "CO_vs_aFPN_bcp", "CO_vs_CO_bcp",
+  "DMN_vs_Motor_bcp", "DMN_vs_Temporal_bcp", "DMN_vs_pFPN_bcp", "DMN_vs_PCC_bcp",
+  "DMN_vs_LateralVis_bcp", "DMN_vs_MedialVis_bcp", "DMN_vs_DAN_bcp", "DMN_vs_aFPN_bcp",
+  "DMN_vs_CO_bcp", "DMN_vs_DMN_bcp",
+  "USp_vs_Motor_bcp", "USp_vs_Temporal_bcp", "USp_vs_pFPN_bcp", "USp_vs_PCC_bcp",
+  "USp_vs_LateralVis_bcp", "USp_vs_MedialVis_bcp", "USp_vs_DAN_bcp", "USp_vs_aFPN_bcp",
+  "USp_vs_CO_bcp", "USp_vs_DMN_bcp", "USp_vs_USp_bcp",
+  "Thal_vs_Motor_bcp", "Thal_vs_Temporal_bcp", "Thal_vs_pFPN_bcp", "Thal_vs_PCC_bcp",
+  "Thal_vs_LateralVis_bcp", "Thal_vs_MedialVis_bcp", "Thal_vs_DAN_bcp", "Thal_vs_aFPN_bcp",
+  "Thal_vs_CO_bcp", "Thal_vs_DMN_bcp", "Thal_vs_USp_bcp", "Thal_vs_Thal_bcp",
+  "Caud_vs_Motor_bcp", "Caud_vs_Temporal_bcp", "Caud_vs_pFPN_bcp", "Caud_vs_PCC_bcp",
+  "Caud_vs_LateralVis_bcp", "Caud_vs_MedialVis_bcp", "Caud_vs_DAN_bcp", "Caud_vs_aFPN_bcp",
+  "Caud_vs_CO_bcp", "Caud_vs_DMN_bcp", "Caud_vs_USp_bcp", "Caud_vs_Thal_bcp", "Caud_vs_Caud_bcp",
+  "Put_vs_Motor_bcp", "Put_vs_Temporal_bcp", "Put_vs_pFPN_bcp", "Put_vs_PCC_bcp",
+  "Put_vs_LateralVis_bcp", "Put_vs_MedialVis_bcp", "Put_vs_DAN_bcp", "Put_vs_aFPN_bcp",
+  "Put_vs_CO_bcp", "Put_vs_DMN_bcp", "Put_vs_USp_bcp", "Put_vs_Thal_bcp",
+  "Put_vs_Caud_bcp", "Put_vs_Put_bcp",
+  "Palli_vs_Motor_bcp", "Palli_vs_Temporal_bcp", "Palli_vs_pFPN_bcp", "Palli_vs_PCC_bcp",
+  "Palli_vs_LateralVis_bcp", "Palli_vs_MedialVis_bcp", "Palli_vs_DAN_bcp", "Palli_vs_aFPN_bcp",
+  "Palli_vs_CO_bcp", "Palli_vs_DMN_bcp", "Palli_vs_USp_bcp", "Palli_vs_Thal_bcp",
+  "Palli_vs_Caud_bcp", "Palli_vs_Put_bcp", "Palli_vs_Palli_bcp",
+  "Hipp_vs_Motor_bcp", "Hipp_vs_Temporal_bcp", "Hipp_vs_pFPN_bcp", "Hipp_vs_PCC_bcp",
+  "Hipp_vs_LateralVis_bcp", "Hipp_vs_MedialVis_bcp", "Hipp_vs_DAN_bcp", "Hipp_vs_aFPN_bcp",
+  "Hipp_vs_CO_bcp", "Hipp_vs_DMN_bcp", "Hipp_vs_USp_bcp", "Hipp_vs_Thal_bcp",
+  "Hipp_vs_Caud_bcp", "Hipp_vs_Put_bcp", "Hipp_vs_Palli_bcp", "Hipp_vs_Hipp_bcp",
+  "Amyg_vs_Motor_bcp", "Amyg_vs_Temporal_bcp", "Amyg_vs_pFPN_bcp", "Amyg_vs_PCC_bcp",
+  "Amyg_vs_LateralVis_bcp", "Amyg_vs_MedialVis_bcp", "Amyg_vs_DAN_bcp", "Amyg_vs_aFPN_bcp",
+  "Amyg_vs_CO_bcp", "Amyg_vs_DMN_bcp", "Amyg_vs_USp_bcp", "Amyg_vs_Thal_bcp",
+  "Amyg_vs_Caud_bcp", "Amyg_vs_Put_bcp", "Amyg_vs_Palli_bcp", "Amyg_vs_Hipp_bcp", "Amyg_vs_Amyg_bcp",
+  "Cere_vs_Motor_bcp", "Cere_vs_Temporal_bcp", "Cere_vs_pFPN_bcp", "Cere_vs_PCC_bcp",
+  "Cere_vs_LateralVis_bcp", "Cere_vs_MedialVis_bcp", "Cere_vs_DAN_bcp", "Cere_vs_aFPN_bcp",
+  "Cere_vs_CO_bcp", "Cere_vs_DMN_bcp", "Cere_vs_USp_bcp", "Cere_vs_Thal_bcp",
+  "Cere_vs_Caud_bcp", "Cere_vs_Put_bcp", "Cere_vs_Palli_bcp", "Cere_vs_Hipp_bcp",
+  "Cere_vs_Amyg_bcp", "Cere_vs_Cere_bcp"
+)
+
+
+
+rsfc_adult <- c(
+  "SMH_vs_SMH_adult",
+  "SMM_vs_SMH_adult", "SMM_vs_SMM_adult",
+  "AUD_vs_SMH_adult", "AUD_vs_SMM_adult", "AUD_vs_AUD_adult",
+  "RST_vs_SMH_adult", "RST_vs_SMM_adult", "RST_vs_AUD_adult", "RST_vs_RST_adult",
+  "FPN_vs_SMH_adult", "FPN_vs_SMM_adult", "FPN_vs_AUD_adult", "FPN_vs_RST_adult", "FPN_vs_FPN_adult",
+  "VIS_vs_SMH_adult", "VIS_vs_SMM_adult", "VIS_vs_AUD_adult", "VIS_vs_RST_adult", "VIS_vs_FPN_adult", "VIS_vs_VIS_adult",
+  "DAN_vs_SMH_adult", "DAN_vs_SMM_adult", "DAN_vs_AUD_adult", "DAN_vs_RST_adult",
+  "DAN_vs_FPN_adult", "DAN_vs_VIS_adult", "DAN_vs_DAN_adult",
+  "CO_vs_SMH_adult", "CO_vs_SMM_adult", "CO_vs_AUD_adult", "CO_vs_RST_adult",
+  "CO_vs_FPN_adult", "CO_vs_VIS_adult", "CO_vs_DAN_adult", "CO_vs_CO_adult",
+  "CP_vs_SMH_adult", "CP_vs_SMM_adult", "CP_vs_AUD_adult", "CP_vs_RST_adult",
+  "CP_vs_FPN_adult", "CP_vs_VIS_adult", "CP_vs_DAN_adult", "CP_vs_CO_adult", "CP_vs_CP_adult",
+  "SAL_vs_SMH_adult", "SAL_vs_SMM_adult", "SAL_vs_AUD_adult", "SAL_vs_RST_adult",
+  "SAL_vs_FPN_adult", "SAL_vs_VIS_adult", "SAL_vs_DAN_adult", "SAL_vs_CO_adult",
+  "SAL_vs_CP_adult", "SAL_vs_SAL_adult",
+  "VAN_vs_SMH_adult", "VAN_vs_SMM_adult", "VAN_vs_AUD_adult", "VAN_vs_RST_adult",
+  "VAN_vs_FPN_adult", "VAN_vs_VIS_adult", "VAN_vs_DAN_adult", "VAN_vs_CO_adult",
+  "VAN_vs_CP_adult", "VAN_vs_SAL_adult", "VAN_vs_VAN_adult",
+  "DMN_vs_SMH_adult", "DMN_vs_SMM_adult", "DMN_vs_AUD_adult", "DMN_vs_RST_adult",
+  "DMN_vs_FPN_adult", "DMN_vs_VIS_adult", "DMN_vs_DAN_adult", "DMN_vs_CO_adult",
+  "DMN_vs_CP_adult", "DMN_vs_SAL_adult", "DMN_vs_VAN_adult", "DMN_vs_DMN_adult",
+  "Usp_vs_SMH_adult", "Usp_vs_SMM_adult", "Usp_vs_AUD_adult", "Usp_vs_RST_adult",
+  "Usp_vs_FPN_adult", "Usp_vs_VIS_adult", "Usp_vs_DAN_adult", "Usp_vs_CO_adult",
+  "Usp_vs_CP_adult", "Usp_vs_SAL_adult", "Usp_vs_VAN_adult", "Usp_vs_DMN_adult", "Usp_vs_Usp_adult",
+  "Thal_vs_SMH_adult", "Thal_vs_SMM_adult", "Thal_vs_AUD_adult", "Thal_vs_RST_adult",
+  "Thal_vs_FPN_adult", "Thal_vs_VIS_adult", "Thal_vs_DAN_adult", "Thal_vs_CO_adult",
+  "Thal_vs_CP_adult", "Thal_vs_SAL_adult", "Thal_vs_VAN_adult", "Thal_vs_DMN_adult",
+  "Thal_vs_Usp_adult", "Thal_vs_Thal_adult",
+  "Caud_vs_SMH_adult", "Caud_vs_SMM_adult", "Caud_vs_AUD_adult", "Caud_vs_RST_adult",
+  "Caud_vs_FPN_adult", "Caud_vs_VIS_adult", "Caud_vs_DAN_adult", "Caud_vs_CO_adult",
+  "Caud_vs_CP_adult", "Caud_vs_SAL_adult", "Caud_vs_VAN_adult", "Caud_vs_DMN_adult",
+  "Caud_vs_Usp_adult", "Caud_vs_Thal_adult", "Caud_vs_Caud_adult",
+  "Put_vs_SMH_adult", "Put_vs_SMM_adult", "Put_vs_AUD_adult", "Put_vs_RST_adult",
+  "Put_vs_FPN_adult", "Put_vs_VIS_adult", "Put_vs_DAN_adult", "Put_vs_CO_adult",
+  "Put_vs_CP_adult", "Put_vs_SAL_adult", "Put_vs_VAN_adult", "Put_vs_DMN_adult",
+  "Put_vs_Usp_adult", "Put_vs_Thal_adult", "Put_vs_Caud_adult", "Put_vs_Put_adult",
+  "Palli_vs_SMH_adult", "Palli_vs_SMM_adult", "Palli_vs_AUD_adult", "Palli_vs_RST_adult",
+  "Palli_vs_FPN_adult", "Palli_vs_VIS_adult", "Palli_vs_DAN_adult", "Palli_vs_CO_adult",
+  "Palli_vs_CP_adult", "Palli_vs_SAL_adult", "Palli_vs_VAN_adult", "Palli_vs_DMN_adult",
+  "Palli_vs_Usp_adult", "Palli_vs_Thal_adult", "Palli_vs_Caud_adult",
+  "Palli_vs_Put_adult", "Palli_vs_Palli_adult",
+  "Hipp_vs_SMH_adult", "Hipp_vs_SMM_adult", "Hipp_vs_AUD_adult", "Hipp_vs_RST_adult",
+  "Hipp_vs_FPN_adult", "Hipp_vs_VIS_adult", "Hipp_vs_DAN_adult", "Hipp_vs_CO_adult",
+  "Hipp_vs_CP_adult", "Hipp_vs_SAL_adult", "Hipp_vs_VAN_adult", "Hipp_vs_DMN_adult",
+  "Hipp_vs_Usp_adult", "Hipp_vs_Thal_adult", "Hipp_vs_Caud_adult",
+  "Hipp_vs_Put_adult", "Hipp_vs_Palli_adult", "Hipp_vs_Hipp_adult",
+  "Amyg_vs_SMH_adult", "Amyg_vs_SMM_adult", "Amyg_vs_AUD_adult", "Amyg_vs_RST_adult",
+  "Amyg_vs_FPN_adult", "Amyg_vs_VIS_adult", "Amyg_vs_DAN_adult", "Amyg_vs_CO_adult",
+  "Amyg_vs_CP_adult", "Amyg_vs_SAL_adult", "Amyg_vs_VAN_adult", "Amyg_vs_DMN_adult",
+  "Amyg_vs_Usp_adult", "Amyg_vs_Thal_adult", "Amyg_vs_Caud_adult",
+  "Amyg_vs_Put_adult", "Amyg_vs_Palli_adult", "Amyg_vs_Hipp_adult", "Amyg_vs_Amyg_adult",
+  "Cere_vs_SMH_adult", "Cere_vs_SMM_adult", "Cere_vs_AUD_adult", "Cere_vs_RST_adult",
+  "Cere_vs_FPN_adult", "Cere_vs_VIS_adult", "Cere_vs_DAN_adult", "Cere_vs_CO_adult",
+  "Cere_vs_CP_adult", "Cere_vs_SAL_adult", "Cere_vs_VAN_adult", "Cere_vs_DMN_adult",
+  "Cere_vs_Usp_adult", "Cere_vs_Thal_adult", "Cere_vs_Caud_adult",
+  "Cere_vs_Put_adult", "Cere_vs_Palli_adult", "Cere_vs_Hipp_adult",
+  "Cere_vs_Amyg_adult", "Cere_vs_Cere_adult"
+)
+
+
+
+```
+
+#this is for trimester included in all- for avg swap out the predcitors eg whiirs_t1", "whiirs_t2", "whiirs_t3 to whiirs_avg
+```{r}
+
+#subcorttotal
+vars <- subcortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "Subcortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_subcort_total.csv",
+  row.names = FALSE
+)
+
+
+## cortical_totals
+vars <- cortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "cortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_cort_total.csv",
+  row.names = FALSE
+)
+
+##volume_vars
+vars <- volume_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "volume"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_volume_total.csv",
+  row.names = FALSE
+)
+
+
+##thickness
+
+vars <- thickness_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "thickness"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_thickness_total.csv",
+  row.names = FALSE
+)
+
+##surface_area_totals
+vars <- surface_area_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "surface area"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_surface_area_total.csv",
+  row.names = FALSE
+)
+
+## voxel_vars
+vars <- voxel_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_voxel_total.csv",
+  row.names = FALSE
+)
+
+
+## rd_totals
+vars <- rd_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_rd_total.csv",
+  row.names = FALSE
+)
+
+
+## fa_totals
+vars <- fa_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_fa_total.csv",
+  row.names = FALSE
+)
+
+
+
+### md_totals
+vars <- md_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_md_total.csv",
+  row.names = FALSE
+)
+
+
+
+## gi_totals
+vars <- gi_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "gi"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_gi_total.csv",
+  row.names = FALSE
+)
+
+
+
+# ra_totals
+vars <- ra_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_ra_total.csv",
+  row.names = FALSE
+)
+
+## l1_totals
+vars <- l1_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_L1_total.csv",
+  row.names = FALSE
+)
+
+####
+
+## global
+vars <- global_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "global"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_global_total.csv",
+  row.names = FALSE
+)
+
+##rsfc_bcp
+vars <- rsfc_bcp
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_bcp"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_rsfc_bcp_totalsq.csv",
+  row.names = FALSE
+)
+
+## rsfc_adult
+
+vars <- rsfc_adult
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+whiirs_terms <- c("whiirs_t1", "whiirs_t2", "whiirs_t3")
+
+# fixed effects
+preds_fixed <- c(
+  whiirs_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in whiirs_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_adult"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in whiirs_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", whiirs_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in whiirs_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+whiirs_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_whiirs_t1", "STE_whiirs_t1", "Pval_whiirs_t1", "FDR_whiirs_t1",
+  "Beta_whiirs_t2", "STE_whiirs_t2", "Pval_whiirs_t2", "FDR_whiirs_t2",
+  "Beta_whiirs_t3", "STE_whiirs_t3", "Pval_whiirs_t3", "FDR_whiirs_t3",
+  "Singular", "Group"
+)]
+
+whiirs_Results_subcort <- whiirs_Results_subcort[order(whiirs_Results_subcort$Variable), ]
+
+write.csv(
+  whiirs_Results_subcort,
+  "~/Downloads/whiirs_Results_rsfc_adult_totalsq.csv",
+  row.names = FALSE
+)
+
+```
+
+RLS
+
+```{r}
+#subcorttotal
+vars <- subcortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "Subcortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_subcort_total.csv",
+  row.names = FALSE
+)
+
+
+## cortical_totals
+vars <- cortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "cortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_cort_total.csv",
+  row.names = FALSE
+)
+
+##volume_vars
+vars <- volume_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "volume"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_volume_total.csv",
+  row.names = FALSE
+)
+
+
+##thickness
+
+vars <- thickness_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "thickness"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_thickness_total.csv",
+  row.names = FALSE
+)
+
+##surface_area_totals
+vars <- surface_area_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "surface area"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_surface_area_total.csv",
+  row.names = FALSE
+)
+
+## voxel_vars
+vars <- voxel_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_voxel_total.csv",
+  row.names = FALSE
+)
+
+
+## rd_totals
+vars <- rd_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_rd_total.csv",
+  row.names = FALSE
+)
+
+
+## fa_totals
+vars <- fa_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_fa_total.csv",
+  row.names = FALSE
+)
+
+
+
+### md_totals
+vars <- md_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_md_total.csv",
+  row.names = FALSE
+)
+
+
+
+## gi_totals
+vars <- gi_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "gi"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_gi_total.csv",
+  row.names = FALSE
+)
+
+
+
+# ra_totals
+vars <- ra_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_ra_total.csv",
+  row.names = FALSE
+)
+
+## l1_totals
+vars <- l1_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_L1_total.csv",
+  row.names = FALSE
+)
+
+####
+
+## global
+vars <- global_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "global"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_global_total.csv",
+  row.names = FALSE
+)
+
+##rsfc_bcp
+vars <- rsfc_bcp
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_bcp"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_rsfc_bcp_totalsq.csv",
+  row.names = FALSE
+)
+
+## rsfc_adult
+
+vars <- rsfc_adult
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+rls_terms <- c("rls_t1", "rls_t2", "rls_t3")
+
+# fixed effects
+preds_fixed <- c(
+  rls_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in rls_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_adult"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in rls_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", rls_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in rls_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+rls_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_rls_t1", "STE_rls_t1", "Pval_rls_t1", "FDR_rls_t1",
+  "Beta_rls_t2", "STE_rls_t2", "Pval_rls_t2", "FDR_rls_t2",
+  "Beta_rls_t3", "STE_rls_t3", "Pval_rls_t3", "FDR_rls_t3",
+  "Singular", "Group"
+)]
+
+rls_Results_subcort <- rls_Results_subcort[order(rls_Results_subcort$Variable), ]
+
+write.csv(
+  rls_Results_subcort,
+  "~/Downloads/rls_Results_rsfc_adult_totalsq.csv",
+  row.names = FALSE
+)
+```
+
+ESS
+```{r}
+#subcorttotal
+vars <- subcortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "Subcortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_subcort_total.csv",
+  row.names = FALSE
+)
+
+
+## cortical_totals
+vars <- cortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "cortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_cort_total.csv",
+  row.names = FALSE
+)
+
+##volume_vars
+vars <- volume_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "volume"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_volume_total.csv",
+  row.names = FALSE
+)
+
+
+##thickness
+
+vars <- thickness_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "thickness"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_thickness_total.csv",
+  row.names = FALSE
+)
+
+##surface_area_totals
+vars <- surface_area_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "surface area"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_surface_area_total.csv",
+  row.names = FALSE
+)
+
+## voxel_vars
+vars <- voxel_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_voxel_total.csv",
+  row.names = FALSE
+)
+
+
+## rd_totals
+vars <- rd_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_rd_total.csv",
+  row.names = FALSE
+)
+
+
+## fa_totals
+vars <- fa_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_fa_total.csv",
+  row.names = FALSE
+)
+
+
+
+### md_totals
+vars <- md_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_md_total.csv",
+  row.names = FALSE
+)
+
+
+
+## gi_totals
+vars <- gi_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "gi"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_gi_total.csv",
+  row.names = FALSE
+)
+
+
+
+# ra_totals
+vars <- ra_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_ra_total.csv",
+  row.names = FALSE
+)
+
+## l1_totals
+vars <- l1_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_L1_total.csv",
+  row.names = FALSE
+)
+
+####
+
+## global
+vars <- global_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "global"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_global_total.csv",
+  row.names = FALSE
+)
+
+##rsfc_bcp
+vars <- rsfc_bcp
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_bcp"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_rsfc_bcp_totalsq.csv",
+  row.names = FALSE
+)
+
+## rsfc_adult
+
+vars <- rsfc_adult
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+ess_terms <- c("ess_t1", "ess_t2", "ess_t3")
+
+# fixed effects
+preds_fixed <- c(
+  ess_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in ess_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_adult"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in ess_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", ess_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in ess_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+ess_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_ess_t1", "STE_ess_t1", "Pval_ess_t1", "FDR_ess_t1",
+  "Beta_ess_t2", "STE_ess_t2", "Pval_ess_t2", "FDR_ess_t2",
+  "Beta_ess_t3", "STE_ess_t3", "Pval_ess_t3", "FDR_ess_t3",
+  "Singular", "Group"
+)]
+
+ess_Results_subcort <- ess_Results_subcort[order(ess_Results_subcort$Variable), ]
+
+write.csv(
+  ess_Results_subcort,
+  "~/Downloads/ess_Results_rsfc_adult_totalsq.csv",
+  row.names = FALSE
+)
+```
+
+
+
+
+
+
+
+PSQI
+```{r}
+#subcorttotal
+vars <- subcortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "Subcortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_subcort_total.csv",
+  row.names = FALSE
+)
+
+
+## cortical_totals
+vars <- cortical_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "cortical"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_cort_total.csv",
+  row.names = FALSE
+)
+
+##volume_vars
+vars <- volume_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "total_brain_volume_volume",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "volume"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_volume_total.csv",
+  row.names = FALSE
+)
+
+
+##thicknsleepqual
+
+vars <- thickness_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "thicknsleepqual"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_thicknsleepqual_total.csv",
+  row.names = FALSE
+)
+
+##surface_area_totals
+vars <- surface_area_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "surface area"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_surface_area_total.csv",
+  row.names = FALSE
+)
+
+## voxel_vars
+vars <- voxel_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_voxel_total.csv",
+  row.names = FALSE
+)
+
+
+## rd_totals
+vars <- rd_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_rd_total.csv",
+  row.names = FALSE
+)
+
+
+## fa_totals
+vars <- fa_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_fa_total.csv",
+  row.names = FALSE
+)
+
+
+
+### md_totals
+vars <- md_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "voxel"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_md_total.csv",
+  row.names = FALSE
+)
+
+
+
+## gi_totals
+vars <- gi_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "gi"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_gi_total.csv",
+  row.names = FALSE
+)
+
+
+
+# ra_totals
+vars <- ra_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_ra_total.csv",
+  row.names = FALSE
+)
+
+## l1_totals
+vars <- l1_totals
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "ra"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_L1_total.csv",
+  row.names = FALSE
+)
+
+####
+
+## global
+vars <- global_vars
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "global"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_global_total.csv",
+  row.names = FALSE
+)
+
+##rsfc_bcp
+vars <- rsfc_bcp
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_bcp"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_rsfc_bcp_totalsq.csv",
+  row.names = FALSE
+)
+
+## rsfc_adult
+
+vars <- rsfc_adult
+vars <- vars[vars %in% names(PheWAS_baseline)]
+is_num <- sapply(PheWAS_baseline[vars], is.numeric)
+vars <- vars[is_num]
+
+# Trimester-specific WHIIRS predictors
+sleepqual_terms <- c("sleepqual_t1", "sleepqual_t2", "sleepqual_t3")
+
+# fixed effects
+preds_fixed <- c(
+  sleepqual_terms,
+  "mrinotes_ga",
+  "mom_cannabis_use",
+  "maternal_age_birth",
+  "income_needs_demo",
+  "child_sex"
+)
+
+
+out <- data.frame(Variable = vars, stringsAsFactors = FALSE)
+
+for (tm in sleepqual_terms) {
+  out[[paste0("Beta_", tm)]] <- NA_real_
+  out[[paste0("STE_", tm)]]  <- NA_real_
+  out[[paste0("Pval_", tm)]] <- NA_real_
+  out[[paste0("FDR_", tm)]]  <- NA_real_
+}
+
+out$Singular <- NA
+out$Group <- "rsfc_adult"
+
+ctrl <- lmerControl(optimizer = "bobyqa", calc.derivs = FALSE)
+
+for (i in seq_along(vars)) {
+  v <- vars[i]
+  y <- PheWAS_baseline[[v]]
+  
+  if (all(is.na(y)) || isTRUE(var(y, na.rm = TRUE) == 0)) next
+  
+  fixed_part <- paste(preds_fixed, collapse = " + ")
+  fml <- as.formula(
+    paste0(v, " ~ ", fixed_part, " + (1 | study_type)")
+  )
+  
+  fit <- tryCatch(
+    lmer(
+      fml,
+      data = PheWAS_baseline,
+      na.action = na.exclude,
+      REML = FALSE,
+      control = ctrl
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(fit)) next
+  
+  cf <- coef(summary(fit))
+  
+  for (tm in sleepqual_terms) {
+    if (!tm %in% rownames(cf)) next
+    
+    out[[paste0("Beta_", tm)]][i] <- cf[tm, "Estimate"]
+    out[[paste0("STE_", tm)]][i]  <- cf[tm, "Std. Error"]
+    out[[paste0("Pval_", tm)]][i] <- cf[tm, "Pr(>|t|)"]
+  }
+  
+  out$Singular[i] <- isSingular(fit, tol = 1e-4)
+}
+
+pcols <- paste0("Pval_", sleepqual_terms)
+out <- out[rowSums(!is.na(out[, pcols, drop = FALSE])) > 0, , drop = FALSE]
+
+for (tm in sleepqual_terms) {
+  pcol <- paste0("Pval_", tm)
+  fcol <- paste0("FDR_", tm)
+  
+  idx <- which(!is.na(out[[pcol]]))
+  if (length(idx) > 0) {
+    out[[fcol]][idx] <- p.adjust(out[[pcol]][idx], method = "fdr")
+  }
+}
+
+sleepqual_Results_subcort <- out[, c(
+  "Variable",
+  "Beta_sleepqual_t1", "STE_sleepqual_t1", "Pval_sleepqual_t1", "FDR_sleepqual_t1",
+  "Beta_sleepqual_t2", "STE_sleepqual_t2", "Pval_sleepqual_t2", "FDR_sleepqual_t2",
+  "Beta_sleepqual_t3", "STE_sleepqual_t3", "Pval_sleepqual_t3", "FDR_sleepqual_t3",
+  "Singular", "Group"
+)]
+
+sleepqual_Results_subcort <- sleepqual_Results_subcort[order(sleepqual_Results_subcort$Variable), ]
+
+write.csv(
+  sleepqual_Results_subcort,
+  "~/Downloads/sleepqual_Results_rsfc_adult_totalsq.csv",
+  row.names = FALSE
+)
+
+```
